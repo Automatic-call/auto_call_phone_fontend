@@ -17,6 +17,7 @@ const STATUS_MAP = {
   1: { text: '已拨打', color: '#67c23a' },
   2: { text: '有意向', color: '#e6a23c' },
   3: { text: '无意向', color: '#f56c6c' },
+  4: { text: '号码受限', color: '#a777d4' },
 }
 
 const fileInput = ref(null)
@@ -389,6 +390,7 @@ onMounted(() => {
                       <option :value="1">已拨打</option>
                       <option :value="2">有意向</option>
                       <option :value="3">无意向</option>
+                      <option :value="4">号码受限</option>
                     </select>
                   </template>
                   <template v-else>

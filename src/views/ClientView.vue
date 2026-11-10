@@ -7,6 +7,7 @@ const STATUS_MAP = {
   1: { text: '已拨打', color: '#67c23a' },
   2: { text: '有意向', color: '#e6a23c' },
   3: { text: '无意向', color: '#f56c6c' },
+  4: { text: '号码受限', color: '#a777d4' },
 }
 
 const deviceId = ref('')
@@ -226,6 +227,13 @@ onMounted(() => {
                 @click="updateStatus(phone.phone_number, 3)"
               >
                 无意向
+              </button>
+              <button
+                class="action-btn restricted"
+                :disabled="updatingPhone !== null"
+                @click="updateStatus(phone.phone_number, 4)"
+              >
+                号码受限
               </button>
             </div>
           </div>
@@ -491,6 +499,11 @@ onMounted(() => {
 .action-btn.not-interested:not(:disabled):hover {
   border-color: #f56c6c;
   color: #f56c6c;
+}
+
+.action-btn.restricted:not(:disabled):hover {
+  border-color: #a777d4;
+  color: #a777d4;
 }
 
 .empty {

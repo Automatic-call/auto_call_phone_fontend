@@ -6,8 +6,8 @@ const loading = ref(false)
 const error = ref('')
 const overview = ref(null)
 
-const STATUS_LABELS = { 0: '待拨打', 1: '已拨打', 2: '有意向', 3: '无意向' }
-const STATUS_COLORS = { 0: '#909399', 1: '#67c23a', 2: '#e6a23c', 3: '#f56c6c' }
+const STATUS_LABELS = { 0: '待拨打', 1: '已拨打', 2: '有意向', 3: '无意向', 4: '号码受限' }
+const STATUS_COLORS = { 0: '#909399', 1: '#67c23a', 2: '#e6a23c', 3: '#f56c6c', 4: '#a777d4' }
 
 async function fetchOverview() {
   loading.value = true
