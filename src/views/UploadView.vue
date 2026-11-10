@@ -34,6 +34,22 @@ const isLoadingDevices = ref(false)
 
 const phoneList = ref([])
 const stats = ref({ total: 0, effective: 0, repeat: 0 })
+const statusFilter = ref('all')
+const selectedIds = ref([])
+const batchStatus = ref('')
+const isBatchUpdating = ref(false)
+const filteredPhones = computed(() =>
+  statusFilter.value === 'all'
+    ? phoneList.value
+    : phoneList.value.filter((phone) => phone.status === Number(statusFilter.value)),
+)
+const visibleIds = computed(() => filteredPhones.value.map((phone) => phone.id).filter((id) => id != null))
+const allVisibleSelected = computed(() =>
+  visibleIds.value.length > 0 && visibleIds.value.every((id) => selectedIds.value.includes(id)),
+)
+const isSelectingDisabled = computed(() =>
+  isBatchUpdating.value || isUploading.value || isFetching.value || isSavingEdit.value || deletingId.value !== null || editingId.value !== null,
+)
 
 const editingId = ref(null)
 const editingRemark = ref('')
@@ -104,7 +120,7 @@ function reset() {
 }
 
 function upload() {
-  if (!selectedFile.value || isUploading.value) return
+  if (!selectedFile.value || isUploading.value || isBatchUpdating.value) return
   if (!deviceId.value.trim()) {
     showMessage('error', '请选择设备')
     return
@@ -160,6 +176,7 @@ function upload() {
 }
 
 function applyResult(data) {
+  selectedIds.value = []
   phoneList.value = data?.phone_list ?? []
   stats.value = {
     total: data?.total ?? 0,
@@ -169,15 +186,19 @@ function applyResult(data) {
 }
 
 async function fetchPhones() {
+  if (isFetching.value || isBatchUpdating.value) return
   if (!deviceId.value.trim()) {
     showMessage('error', '请选择设备')
     return
   }
   isFetching.value = true
   clearMessage()
+  const currentDevice = deviceId.value.trim()
   try {
-    const data = await apiPost('/v1/admin/excel/get_phones', { device_id: deviceId.value.trim() })
+    const data = await apiPost('/v1/admin/excel/get_phones', { device_id: currentDevice })
+    if (deviceId.value.trim() !== currentDevice) return
     phoneList.value = data?.phone_list ?? []
+    selectedIds.value = []
     stats.value = {
       total: data?.total ?? 0,
       effective: stats.value.effective,
@@ -185,7 +206,7 @@ async function fetchPhones() {
     }
     showMessage('success', `已加载 ${data?.total ?? 0} 条记录`)
   } catch (err) {
-    showMessage('error', `加载失败：${err.message}`)
+    if (deviceId.value.trim() === currentDevice) showMessage('error', `加载失败：${err.message}`)
   } finally {
     isFetching.value = false
   }
@@ -204,7 +225,7 @@ function cancelEdit() {
 }
 
 async function saveEdit(item) {
-  if (isSavingEdit.value) return
+  if (isSavingEdit.value || isBatchUpdating.value) return
   isSavingEdit.value = true
   clearMessage()
   try {
@@ -232,13 +253,14 @@ async function saveEdit(item) {
 }
 
 async function removePhone(item) {
-  if (deletingId.value !== null) return
+  if (deletingId.value !== null || isBatchUpdating.value) return
   if (!window.confirm(`确认删除号码 ${item.phone_number} 吗？`)) return
   deletingId.value = item.id
   clearMessage()
   try {
     await apiPost('/v1/admin/excel/delete_phone', { id: item.id })
     phoneList.value = phoneList.value.filter((p) => p.id !== item.id)
+    selectedIds.value = selectedIds.value.filter((id) => id !== item.id)
     stats.value = { ...stats.value, total: Math.max(0, stats.value.total - 1) }
     if (editingId.value === item.id) cancelEdit()
     showMessage('success', '删除成功')
@@ -246,6 +268,48 @@ async function removePhone(item) {
     showMessage('error', `删除失败：${err.message}`)
   } finally {
     deletingId.value = null
+  }
+}
+
+function onDeviceChange() {
+  selectedIds.value = []
+  phoneList.value = []
+  stats.value = { total: 0, effective: 0, repeat: 0 }
+}
+
+function toggleVisible(checked) {
+  if (isSelectingDisabled.value) return
+  const visible = new Set(visibleIds.value)
+  selectedIds.value = checked
+    ? [...new Set([...selectedIds.value, ...visibleIds.value])]
+    : selectedIds.value.filter((id) => !visible.has(id))
+}
+
+async function updateSelectedStatus() {
+  if (!isAdmin.value || isSelectingDisabled.value || !selectedIds.value.length || batchStatus.value === '') return
+  const ids = [...selectedIds.value]
+  const status = Number(batchStatus.value)
+  if (!STATUS_MAP[status]) return
+  if (!window.confirm(`确认将选中的 ${ids.length} 条号码状态改为「${STATUS_MAP[status].text}」吗？`)) return
+  isBatchUpdating.value = true
+  clearMessage()
+  let updated = 0
+  try {
+    for (const id of ids) {
+      try {
+        await apiPost('/v1/admin/excel/update_phone', { id, status })
+        const phone = phoneList.value.find((item) => item.id === id)
+        if (phone) phone.status = status
+        selectedIds.value = selectedIds.value.filter((selected) => selected !== id)
+        updated++
+      } catch (err) {
+        showMessage('error', `已更新 ${updated} 条，号码 ID ${id} 失败：${err.message}；其余已选号码未执行`)
+        return
+      }
+    }
+    showMessage('success', `已更新 ${updated} 条号码`)
+  } finally {
+    isBatchUpdating.value = false
   }
 }
 
@@ -285,7 +349,7 @@ onMounted(() => {
 
         <div class="form-row">
           <label>设备 ID <span class="required">*</span></label>
-          <select v-model="deviceId" :disabled="isLoadingDevices">
+          <select v-model="deviceId" :disabled="isLoadingDevices || isBatchUpdating || isFetching || isUploading || isSavingEdit || deletingId !== null" @change="onDeviceChange">
             <option value="" disabled>{{ isLoadingDevices ? '加载中...' : '请选择设备' }}</option>
             <option v-for="device in deviceList" :key="device" :value="device">
               {{ device }}
@@ -338,12 +402,12 @@ onMounted(() => {
           <button class="btn" :disabled="!selectedFile || isUploading" @click="reset">
             重置
           </button>
-          <button v-if="isAdmin" class="btn ghost" :disabled="isFetching || isUploading || !deviceId" @click="fetchPhones">
+          <button v-if="isAdmin" class="btn ghost" :disabled="isFetching || isUploading || isBatchUpdating || !deviceId" @click="fetchPhones">
             {{ isFetching ? '加载中...' : '加载已有号码' }}
           </button>
           <button
             class="btn primary"
-            :disabled="!selectedFile || isUploading"
+            :disabled="!selectedFile || isUploading || isBatchUpdating"
             @click="upload"
           >
             {{ isUploading ? '上传中...' : '开始上传' }}
@@ -353,6 +417,25 @@ onMounted(() => {
 
       <!-- 右侧：预览区 -->
       <section class="panel right">
+        <div v-if="isAdmin" class="batch-controls">
+          <label>筛选状态
+            <select v-model="statusFilter" :disabled="isBatchUpdating">
+              <option value="all">全部</option>
+              <option v-for="(info, status) in STATUS_MAP" :key="status" :value="status">{{ info.text }}</option>
+            </select>
+          </label>
+          <span>显示 {{ filteredPhones.length }} 条，已选 {{ selectedIds.length }} 条</span>
+          <label>批量设为
+            <select v-model="batchStatus" :disabled="isBatchUpdating">
+              <option value="" disabled>请选择状态</option>
+              <option v-for="(info, status) in STATUS_MAP" :key="status" :value="status">{{ info.text }}</option>
+            </select>
+          </label>
+          <button class="btn primary" :disabled="!selectedIds.length || batchStatus === '' || isSelectingDisabled" @click="updateSelectedStatus">
+            {{ isBatchUpdating ? '更新中...' : '批量设置状态' }}
+          </button>
+        </div>
+        <p v-if="isAdmin" class="batch-hint">批量设置前请先点击“加载已有号码”；仅有数据库 ID 的号码可勾选。</p>
         <div class="panel-head">
           <h2 class="panel-title">{{ isAdmin ? '预览' : '上传结果' }}</h2>
           <div class="stats">
@@ -369,9 +452,12 @@ onMounted(() => {
         </div>
 
         <div class="table-wrap">
-          <table v-if="phoneList.length > 0" class="phone-table">
+          <table v-if="filteredPhones.length > 0" class="phone-table">
             <thead>
               <tr>
+                <th v-if="isAdmin" class="col-select">
+                  <input type="checkbox" :checked="allVisibleSelected" :disabled="isSelectingDisabled || !visibleIds.length" @change="toggleVisible($event.target.checked)" />
+                </th>
                 <th class="col-idx">#</th>
                 <th>电话号码</th>
                 <th class="col-status">状态</th>
@@ -380,7 +466,10 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in phoneList" :key="item.id ?? idx">
+              <tr v-for="(item, idx) in filteredPhones" :key="item.id ?? idx">
+                <td v-if="isAdmin" class="col-select">
+                  <input v-model="selectedIds" type="checkbox" :value="item.id" :disabled="item.id == null || isSelectingDisabled" />
+                </td>
                 <td class="col-idx">{{ idx + 1 }}</td>
                 <td class="phone">{{ item.phone_number }}</td>
                 <td class="col-status">
@@ -435,14 +524,14 @@ onMounted(() => {
                   <template v-else>
                     <button
                       class="btn-link"
-                      :disabled="editingId !== null || deletingId !== null"
+                      :disabled="editingId !== null || deletingId !== null || isBatchUpdating"
                       @click="startEdit(item)"
                     >
                       编辑
                     </button>
                     <button
                       class="btn-link danger"
-                      :disabled="editingId !== null || deletingId !== null"
+                      :disabled="editingId !== null || deletingId !== null || isBatchUpdating"
                       @click="removePhone(item)"
                     >
                       {{ deletingId === item.id ? '删除中...' : '删除' }}
@@ -456,7 +545,7 @@ onMounted(() => {
           <div v-else class="empty">
             <div class="empty-icon">📋</div>
             <div>暂无数据</div>
-            <div class="secondary-text">{{ isAdmin ? '上传 Excel 或加载已有号码后在此预览' : '上传 Excel 后在此查看本次结果' }}</div>
+            <div class="secondary-text">{{ isAdmin && phoneList.length > 0 ? '当前筛选状态下暂无号码' : isAdmin ? '上传 Excel 或加载已有号码后在此预览' : '上传 Excel 后在此查看本次结果' }}</div>
           </div>
         </div>
       </section>
@@ -728,6 +817,35 @@ onMounted(() => {
   background-color: hsla(160, 100%, 32%, 1);
 }
 
+.batch-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.batch-hint {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin: 0 0 1rem;
+}
+
+.batch-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.batch-controls select {
+  padding: 0.4rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  border-radius: 6px;
+}
+
 .table-wrap {
   flex: 1;
   min-height: 0;
@@ -760,6 +878,11 @@ onMounted(() => {
 
 .phone-table tbody tr:hover {
   background-color: var(--color-background-mute);
+}
+
+.col-select {
+  width: 36px;
+  text-align: center !important;
 }
 
 .col-idx {
