@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { apiPost } from '@/api/index.js'
+import { apiGet, apiPost } from '@/api/index.js'
 
 const STATUS_MAP = {
   0: { text: '待拨打', color: '#909399' },
@@ -36,7 +36,7 @@ function statusInfo(status) {
 async function fetchDevices() {
   isLoadingDevices.value = true
   try {
-    const data = await apiPost('/v1/client/excel/get_devices', {})
+    const data = await apiGet('/v1/client/auth/devices')
     devices.value = data?.devices ?? []
   } catch (err) {
     showMessage('error', `获取设备列表失败：${err.message}`)

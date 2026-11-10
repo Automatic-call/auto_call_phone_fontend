@@ -17,11 +17,33 @@ const statusFilter = ref('all')
 
 const bindingDeviceId = ref('')
 const bindingUserId = ref('')
+const users = ref([])
+const isLoadingUsers = ref(false)
 const isBinding = ref(false)
 const bindError = ref('')
 const bindSuccess = ref('')
 
 const unbindingId = ref(null)
+
+async function fetchUsers() {
+  isLoadingUsers.value = true
+  try {
+    const availableUsers = []
+    let userPage = 1
+    let userTotal = 0
+    do {
+      const data = await apiPost('/v1/admin/users', { page: userPage, limit: 100 })
+      availableUsers.push(...(data?.users ?? []))
+      userTotal = data?.total ?? 0
+      userPage++
+    } while (availableUsers.length < userTotal)
+    users.value = availableUsers
+  } catch (err) {
+    bindError.value = `获取用户列表失败：${err.message}`
+  } finally {
+    isLoadingUsers.value = false
+  }
+}
 
 async function fetchDevices() {
   loading.value = true
@@ -53,25 +75,27 @@ function nextPage() {
   if (page.value < totalPages()) page.value++
 }
 
-async function bindDevice() {
-  const did = bindingDeviceId.value.trim()
-  const uid = bindingUserId.value.trim()
-  if (!did || !uid) {
-    bindError.value = '请填写设备 ID 和用户 ID'
-    return
-  }
+function startBinding(deviceId) {
+  bindingDeviceId.value = deviceId
+  bindingUserId.value = route.query.user_id ? String(route.query.user_id) : ''
+  bindError.value = ''
+  bindSuccess.value = ''
+}
+
+async function bindDevice(deviceId) {
+  if (!bindingUserId.value || isBinding.value) return
   isBinding.value = true
   bindError.value = ''
   bindSuccess.value = ''
   try {
     await apiPost('/v1/admin/excel/bind_device', {
-      device_id: did,
-      user_id: Number(uid),
+      device_id: deviceId,
+      user_id: Number(bindingUserId.value),
     })
-    bindSuccess.value = `设备 ${did} 已绑定到用户 ${uid}`
+    bindSuccess.value = `设备 ${deviceId} 绑定成功`
     bindingDeviceId.value = ''
     bindingUserId.value = ''
-    fetchDevices()
+    await fetchDevices()
   } catch (err) {
     bindError.value = err.message || '绑定失败'
   } finally {
@@ -85,7 +109,7 @@ async function unbindDevice(deviceId) {
   unbindingId.value = deviceId
   try {
     await apiPost('/v1/admin/devices/unbind', { device_id: deviceId })
-    fetchDevices()
+    await fetchDevices()
   } catch (err) {
     error.value = err.message || '解绑失败'
   } finally {
@@ -97,14 +121,9 @@ function isUnbound(d) {
   return !d.user_id && !d.username
 }
 
-// handle user_id query from UserManageView
-const filterUserId = ref(route.query.user_id || '')
-
 onMounted(() => {
-  if (filterUserId.value) {
-    bindingUserId.value = filterUserId.value
-  }
   fetchDevices()
+  fetchUsers()
 })
 
 watch(page, () => fetchDevices())
@@ -119,32 +138,6 @@ watch(statusFilter, () => {
     <header class="page-header">
       <h1>设备管理</h1>
     </header>
-
-    <!-- 绑定设备 -->
-    <section class="card">
-      <h2 class="card-title">绑定设备到用户</h2>
-      <div class="bind-row">
-        <input
-          v-model="bindingDeviceId"
-          type="text"
-          placeholder="设备 ID"
-          :disabled="isBinding"
-          @keyup.enter="bindDevice"
-        />
-        <input
-          v-model="bindingUserId"
-          type="number"
-          placeholder="用户 ID"
-          :disabled="isBinding"
-          @keyup.enter="bindDevice"
-        />
-        <button class="btn primary" :disabled="isBinding" @click="bindDevice">
-          {{ isBinding ? '绑定中...' : '绑定' }}
-        </button>
-      </div>
-      <div v-if="bindError" class="msg error">{{ bindError }}</div>
-      <div v-if="bindSuccess" class="msg success">{{ bindSuccess }}</div>
-    </section>
 
     <!-- 设备列表 -->
     <section class="card">
@@ -175,6 +168,8 @@ watch(statusFilter, () => {
         </div>
       </div>
 
+      <div v-if="bindError" class="msg error">{{ bindError }}</div>
+      <div v-if="bindSuccess" class="msg success">{{ bindSuccess }}</div>
       <div v-if="loading" class="loading">加载中...</div>
       <div v-else-if="error" class="msg error">{{ error }}</div>
 
@@ -212,8 +207,25 @@ watch(statusFilter, () => {
               <td class="not-interested">{{ d.not_interested_count ?? 0 }}</td>
               <td class="time">{{ d.created_at ? new Date(d.created_at).toLocaleDateString() : '-' }}</td>
               <td>
+                <template v-if="isUnbound(d)">
+                  <div v-if="bindingDeviceId === d.device_id" class="row-bind">
+                    <select v-model="bindingUserId" :disabled="isLoadingUsers || isBinding">
+                      <option value="" disabled>{{ isLoadingUsers ? '加载用户中...' : '请选择用户' }}</option>
+                      <option v-for="user in users" :key="user.user_id" :value="String(user.user_id)">
+                        {{ user.username }}（{{ user.role === 'admin' ? '管理员' : '普通用户' }}，#{{ user.user_id }}）
+                      </option>
+                    </select>
+                    <button class="btn-link" :disabled="!bindingUserId || isBinding" @click="bindDevice(d.device_id)">
+                      {{ isBinding ? '绑定中...' : '确认' }}
+                    </button>
+                    <button class="btn-link" :disabled="isBinding" @click="bindingDeviceId = ''">取消</button>
+                  </div>
+                  <button v-else class="btn-link" :disabled="isLoadingUsers || isBinding" @click="startBinding(d.device_id)">
+                    绑定
+                  </button>
+                </template>
                 <button
-                  v-if="!isUnbound(d)"
+                  v-else
                   class="btn-link danger"
                   :disabled="unbindingId === d.device_id"
                   @click="unbindDevice(d.device_id)"
@@ -299,25 +311,19 @@ watch(statusFilter, () => {
   font-weight: 500;
 }
 
-.bind-row {
+.row-bind {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  white-space: nowrap;
 }
 
-.bind-row input {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
+.row-bind select {
+  padding: 0.35rem;
   border: 1px solid var(--color-border);
   background-color: var(--color-background);
   color: var(--color-text);
   border-radius: 6px;
-  font-size: 0.9rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.bind-row input:focus {
-  border-color: hsla(160, 100%, 37%, 1);
 }
 
 .btn {
