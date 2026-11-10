@@ -1,11 +1,16 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { apiUrl } from '@/config.js'
-import { apiPost } from '@/api/index.js'
+import { apiGet, apiPost } from '@/api/index.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 const ACCEPTED_EXTENSIONS = ['.xlsx', '.xls']
 const MAX_SIZE_MB = 10
-const UPLOAD_URL = apiUrl('/v1/admin/excel/upload_excel')
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.isAdmin)
+const UPLOAD_URL = computed(() =>
+  apiUrl(isAdmin.value ? '/v1/admin/excel/upload_excel' : '/v1/client/excel/upload_excel'),
+)
 
 const STATUS_MAP = {
   0: { text: '待拨打', color: '#909399' },
@@ -23,7 +28,6 @@ const progress = ref(0)
 const message = ref(null)
 
 const deviceId = ref('')
-const userId = ref('')
 const deviceList = ref([])
 const isLoadingDevices = ref(false)
 
@@ -101,7 +105,7 @@ function reset() {
 function upload() {
   if (!selectedFile.value || isUploading.value) return
   if (!deviceId.value.trim()) {
-    showMessage('error', '请填写设备 ID')
+    showMessage('error', '请选择设备')
     return
   }
   clearMessage()
@@ -111,12 +115,8 @@ function upload() {
   const formData = new FormData()
   formData.append('file', selectedFile.value)
   formData.append('device_id', deviceId.value.trim())
-  if (userId.value.trim()) {
-    formData.append('user_id', userId.value.trim())
-  }
-
   const xhr = new XMLHttpRequest()
-  xhr.open('POST', UPLOAD_URL)
+  xhr.open('POST', UPLOAD_URL.value)
 
   const token = localStorage.getItem('token')
   if (token) {
@@ -141,7 +141,7 @@ function upload() {
           `上传成功：共 ${data.total ?? 0} 条，有效 ${data.effective_count ?? 0}，重复 ${data.repeat_count ?? 0}`,
         )
         selectedFile.value = null
-        fetchPhones()
+        if (isAdmin.value) fetchPhones()
       } catch {
         showMessage('error', '上传成功，但响应解析失败')
       }
@@ -169,13 +169,16 @@ function applyResult(data) {
 
 async function fetchPhones() {
   if (!deviceId.value.trim()) {
-    showMessage('error', '请填写设备 ID')
+    showMessage('error', '请选择设备')
     return
   }
   isFetching.value = true
   clearMessage()
   try {
-    const data = await apiPost('/v1/admin/excel/get_phones', { device_id: deviceId.value.trim() })
+    const data = await apiPost(
+      isAdmin.value ? '/v1/admin/excel/get_phones' : '/v1/client/excel/get_phones',
+      { device_id: deviceId.value.trim() },
+    )
     phoneList.value = data?.phone_list ?? []
     stats.value = {
       total: data?.total ?? 0,
@@ -207,7 +210,7 @@ async function saveEdit(item) {
   isSavingEdit.value = true
   clearMessage()
   try {
-    const data = await apiPost('/v1/admin/excel/update_phone', {
+    const data = await apiPost(isAdmin.value ? '/v1/admin/excel/update_phone' : '/v1/client/excel/update_phone', {
       id: item.id,
       remark: editingRemark.value,
       status: Number(editingStatus.value),
@@ -236,7 +239,7 @@ async function removePhone(item) {
   deletingId.value = item.id
   clearMessage()
   try {
-    await apiPost('/v1/admin/excel/delete_phone', { id: item.id })
+    await apiPost(isAdmin.value ? '/v1/admin/excel/delete_phone' : '/v1/client/excel/delete_phone', { id: item.id })
     phoneList.value = phoneList.value.filter((p) => p.id !== item.id)
     stats.value = { ...stats.value, total: Math.max(0, stats.value.total - 1) }
     if (editingId.value === item.id) cancelEdit()
@@ -251,8 +254,13 @@ async function removePhone(item) {
 async function fetchDevices() {
   isLoadingDevices.value = true
   try {
-    const data = await apiPost('/v1/admin/excel/get_devices', {})
-    deviceList.value = data?.device_list ?? []
+    if (isAdmin.value) {
+      const data = await apiPost('/v1/admin/excel/get_devices', {})
+      deviceList.value = data?.device_list ?? []
+    } else {
+      const data = await apiGet('/v1/client/auth/devices')
+      deviceList.value = data?.devices ?? []
+    }
   } catch (err) {
     showMessage('error', `获取设备列表失败：${err.message}`)
   } finally {
@@ -269,7 +277,7 @@ onMounted(() => {
   <main class="upload-page">
     <header class="page-header">
       <h1>电话号码 Excel 上传</h1>
-      <p class="hint">左侧上传 Excel 文件，右侧实时预览号码列表</p>
+      <p class="hint">{{ isAdmin ? '左侧上传 Excel 文件，右侧实时预览号码列表' : '将号码上传到自己绑定的设备' }}</p>
     </header>
 
     <div class="layout">
@@ -285,11 +293,6 @@ onMounted(() => {
               {{ device }}
             </option>
           </select>
-        </div>
-
-        <div class="form-row">
-          <label>用户 ID <span class="hint-label">（可选）</span></label>
-          <input v-model="userId" type="text" placeholder="输入用户 ID 以绑定设备" />
         </div>
 
         <div
@@ -337,7 +340,7 @@ onMounted(() => {
           <button class="btn" :disabled="!selectedFile || isUploading" @click="reset">
             重置
           </button>
-          <button class="btn ghost" :disabled="isFetching || isUploading" @click="fetchPhones">
+          <button v-if="isAdmin" class="btn ghost" :disabled="isFetching || isUploading" @click="fetchPhones">
             {{ isFetching ? '加载中...' : '加载已有号码' }}
           </button>
           <button
@@ -353,7 +356,7 @@ onMounted(() => {
       <!-- 右侧：预览区 -->
       <section class="panel right">
         <div class="panel-head">
-          <h2 class="panel-title">预览</h2>
+          <h2 class="panel-title">{{ isAdmin ? '预览' : '上传结果' }}</h2>
           <div class="stats">
             <span class="stat">
               总计 <b>{{ stats.total }}</b>
@@ -375,7 +378,7 @@ onMounted(() => {
                 <th>电话号码</th>
                 <th class="col-status">状态</th>
                 <th>备注</th>
-                <th class="col-actions">操作</th>
+                <th v-if="isAdmin" class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -383,7 +386,7 @@ onMounted(() => {
                 <td class="col-idx">{{ idx + 1 }}</td>
                 <td class="phone">{{ item.phone_number }}</td>
                 <td class="col-status">
-                  <template v-if="editingId === item.id">
+                  <template v-if="isAdmin && editingId === item.id">
                     <select v-model.number="editingStatus" class="edit-input">
                       <option :value="0">待拨打</option>
                       <option :value="1">已拨打</option>
@@ -405,7 +408,7 @@ onMounted(() => {
                 </td>
                 <td class="remark">
                   <input
-                    v-if="editingId === item.id"
+                    v-if="isAdmin && editingId === item.id"
                     v-model="editingRemark"
                     type="text"
                     class="edit-input"
@@ -413,7 +416,7 @@ onMounted(() => {
                   />
                   <template v-else>{{ item.remark || '-' }}</template>
                 </td>
-                <td class="col-actions">
+                <td v-if="isAdmin" class="col-actions">
                   <template v-if="editingId === item.id">
                     <button
                       class="btn-link"

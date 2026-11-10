@@ -66,6 +66,11 @@ const router = createRouter({
           name: 'client-phones',
           component: ClientView,
         },
+        {
+          path: 'upload',
+          name: 'client-upload',
+          component: UploadView,
+        },
       ],
     },
     {

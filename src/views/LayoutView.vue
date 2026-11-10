@@ -15,6 +15,7 @@ const adminNav = [
 
 const clientNav = [
   { path: '/client/phones', label: '拨打电话' },
+  { path: '/client/upload', label: '上传号码' },
 ]
 
 function isActive(path) {
