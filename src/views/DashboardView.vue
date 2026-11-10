@@ -5,6 +5,7 @@ import { apiGet } from '@/api/index.js'
 const loading = ref(false)
 const error = ref('')
 const overview = ref(null)
+const selectedUserId = ref('')
 
 const STATUS_LABELS = { 0: '待拨打', 1: '已拨打', 2: '有意向', 3: '无意向', 4: '号码受限' }
 const STATUS_COLORS = { 0: '#909399', 1: '#67c23a', 2: '#e6a23c', 3: '#f56c6c', 4: '#a777d4' }
@@ -14,6 +15,9 @@ async function fetchOverview() {
   error.value = ''
   try {
     overview.value = await apiGet('/v1/admin/excel/overview')
+    if (!selectedUserId.value && overview.value.weekly_user_calls?.length) {
+      selectedUserId.value = String(overview.value.weekly_user_calls[0].user_id)
+    }
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -47,6 +51,13 @@ const maxStatusCount = computed(() => {
 })
 
 const weeklyPhones = computed(() => overview.value?.weekly_phones ?? [])
+const weeklyUsers = computed(() => overview.value?.weekly_user_calls ?? [])
+const selectedUser = computed(() => weeklyUsers.value.find((user) => String(user.user_id) === selectedUserId.value))
+const userDays = computed(() => {
+  if (!selectedUser.value) return []
+  const byDate = new Map(selectedUser.value.days.map((day) => [day.date, day.count]))
+  return weeklyPhones.value.map((day) => ({ date: day.date, count: byDate.get(day.date) ?? 0 }))
+})
 const chartWidth = 640
 const chartHeight = 220
 const chartPadding = 30
@@ -60,6 +71,17 @@ function chartPoints(key) {
   return rows.map((row, index) => {
     const x = chartPadding + (index * (chartWidth - 2 * chartPadding)) / 6
     const y = chartBottom - (row[key] / max) * (chartBottom - chartTop)
+    return `${x},${y}`
+  }).join(' ')
+}
+
+function userCallPoints() {
+  const rows = userDays.value
+  if (!rows.length) return ''
+  const max = Math.max(...rows.map((row) => row.count), 1)
+  return rows.map((row, index) => {
+    const x = chartPadding + (index * (chartWidth - 2 * chartPadding)) / 6
+    const y = chartBottom - (row.count / max) * (chartBottom - chartTop)
     return `${x},${y}`
   }).join(' ')
 }
@@ -110,6 +132,31 @@ onMounted(fetchOverview)
           </div>
         </div>
         <div v-else class="empty-trend">暂无趋势数据</div>
+      </section>
+
+      <section class="trend-section card">
+        <div class="user-trend-head">
+          <h2 class="card-title">本周用户每日处理号码趋势</h2>
+          <select v-model="selectedUserId" aria-label="选择用户">
+            <option v-for="user in weeklyUsers" :key="user.user_id" :value="String(user.user_id)">
+              {{ user.username }} (#{{ user.user_id }})
+            </option>
+          </select>
+        </div>
+        <p class="chart-hint">近似值：按号码当前已处理状态及最后更新时间统计，并归属当前绑定的用户；改备注或设备换绑会改变统计，不代表实际拨打次数。</p>
+        <div v-if="selectedUser" class="trend-chart">
+          <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" role="img" :aria-label="`${selectedUser.username} 本周每日处理号码趋势`">
+            <line :x1="chartPadding" :x2="chartWidth - chartPadding" :y1="chartBottom" :y2="chartBottom" stroke="#b9c0c6" />
+            <polyline :points="userCallPoints()" fill="none" stroke="#409eff" stroke-width="2.5" stroke-linejoin="round" />
+          </svg>
+          <div class="day-values">
+            <div v-for="day in userDays" :key="day.date" class="day-value">
+              <b>{{ dateLabel(day.date) }}</b>
+              <span class="legend-new">{{ day.count }} 条</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-trend">本周暂无用户处理记录</div>
       </section>
 
       <section class="status-section card">
@@ -206,6 +253,26 @@ onMounted(fetchOverview)
 .card-title {
   font-size: 1.05rem;
   margin: 0 0 1rem;
+}
+
+.user-trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.user-trend-head .card-title {
+  margin: 0;
+}
+
+.user-trend-head select {
+  padding: 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-background);
+  color: var(--color-text);
 }
 
 .chart-hint {
