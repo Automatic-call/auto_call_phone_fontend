@@ -175,10 +175,7 @@ async function fetchPhones() {
   isFetching.value = true
   clearMessage()
   try {
-    const data = await apiPost(
-      isAdmin.value ? '/v1/admin/excel/get_phones' : '/v1/client/excel/get_phones',
-      { device_id: deviceId.value.trim() },
-    )
+    const data = await apiPost('/v1/admin/excel/get_phones', { device_id: deviceId.value.trim() })
     phoneList.value = data?.phone_list ?? []
     stats.value = {
       total: data?.total ?? 0,
@@ -210,7 +207,7 @@ async function saveEdit(item) {
   isSavingEdit.value = true
   clearMessage()
   try {
-    const data = await apiPost(isAdmin.value ? '/v1/admin/excel/update_phone' : '/v1/client/excel/update_phone', {
+    const data = await apiPost('/v1/admin/excel/update_phone', {
       id: item.id,
       remark: editingRemark.value,
       status: Number(editingStatus.value),
@@ -239,7 +236,7 @@ async function removePhone(item) {
   deletingId.value = item.id
   clearMessage()
   try {
-    await apiPost(isAdmin.value ? '/v1/admin/excel/delete_phone' : '/v1/client/excel/delete_phone', { id: item.id })
+    await apiPost('/v1/admin/excel/delete_phone', { id: item.id })
     phoneList.value = phoneList.value.filter((p) => p.id !== item.id)
     stats.value = { ...stats.value, total: Math.max(0, stats.value.total - 1) }
     if (editingId.value === item.id) cancelEdit()
@@ -340,7 +337,7 @@ onMounted(() => {
           <button class="btn" :disabled="!selectedFile || isUploading" @click="reset">
             重置
           </button>
-          <button class="btn ghost" :disabled="isFetching || isUploading || !deviceId" @click="fetchPhones">
+          <button v-if="isAdmin" class="btn ghost" :disabled="isFetching || isUploading || !deviceId" @click="fetchPhones">
             {{ isFetching ? '加载中...' : '加载已有号码' }}
           </button>
           <button
@@ -457,7 +454,7 @@ onMounted(() => {
           <div v-else class="empty">
             <div class="empty-icon">📋</div>
             <div>暂无数据</div>
-            <div class="secondary-text">上传 Excel 或加载已有号码后在此预览</div>
+            <div class="secondary-text">{{ isAdmin ? '上传 Excel 或加载已有号码后在此预览' : '上传 Excel 后在此查看本次结果' }}</div>
           </div>
         </div>
       </section>
