@@ -46,6 +46,28 @@ const maxStatusCount = computed(() => {
   return Math.max(...statusBars.value.map((s) => s.count), 1)
 })
 
+const weeklyPhones = computed(() => overview.value?.weekly_phones ?? [])
+const chartWidth = 640
+const chartHeight = 220
+const chartPadding = 30
+const chartTop = 16
+const chartBottom = chartHeight - 28
+
+function chartPoints(key) {
+  const rows = weeklyPhones.value
+  if (!rows.length) return ''
+  const max = Math.max(...rows.map((row) => row[key]), 1)
+  return rows.map((row, index) => {
+    const x = chartPadding + (index * (chartWidth - 2 * chartPadding)) / 6
+    const y = chartBottom - (row[key] / max) * (chartBottom - chartTop)
+    return `${x},${y}`
+  }).join(' ')
+}
+
+function dateLabel(date) {
+  return date?.slice(5) ?? ''
+}
+
 onMounted(fetchOverview)
 </script>
 
@@ -64,6 +86,30 @@ onMounted(fetchOverview)
           <div class="stat-value" :style="{ color: card.color }">{{ card.value }}</div>
           <div class="stat-label">{{ card.label }}</div>
         </div>
+      </section>
+
+      <section class="trend-section card">
+        <h2 class="card-title">本周号码趋势（周一至周日）</h2>
+        <p class="chart-hint">新增号码按创建日期统计；累计号码为截至当天当前未删除的号码数。两条曲线分别按自身最大值缩放，具体数量见下方。</p>
+        <div v-if="weeklyPhones.length" class="trend-chart">
+          <div class="chart-legend">
+            <span class="legend-new">● 每日新增</span>
+            <span class="legend-total">● 累计号码</span>
+          </div>
+          <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" role="img" aria-label="本周每日新增与累计号码趋势折线图">
+            <line :x1="chartPadding" :x2="chartWidth - chartPadding" :y1="chartBottom" :y2="chartBottom" stroke="#b9c0c6" />
+            <polyline :points="chartPoints('new_count')" fill="none" stroke="#409eff" stroke-width="2.5" stroke-linejoin="round" />
+            <polyline :points="chartPoints('cumulative')" fill="none" stroke="#67c23a" stroke-width="2.5" stroke-linejoin="round" />
+          </svg>
+          <div class="day-values">
+            <div v-for="day in weeklyPhones" :key="day.date" class="day-value">
+              <b>{{ dateLabel(day.date) }}</b>
+              <span class="legend-new">新增 {{ day.new_count }}</span>
+              <span class="legend-total">累计 {{ day.cumulative }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-trend">暂无趋势数据</div>
       </section>
 
       <section class="status-section card">
@@ -160,6 +206,52 @@ onMounted(fetchOverview)
 .card-title {
   font-size: 1.05rem;
   margin: 0 0 1rem;
+}
+
+.chart-hint {
+  font-size: 0.82rem;
+  opacity: 0.7;
+  margin: 0.6rem 0 1rem;
+}
+
+.trend-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.85rem;
+}
+
+.legend-new {
+  color: #409eff;
+}
+
+.legend-total {
+  color: #67c23a;
+}
+
+.day-values {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.day-value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.empty-trend {
+  padding: 2rem;
+  text-align: center;
+  opacity: 0.6;
 }
 
 .status-list {
