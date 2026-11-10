@@ -186,41 +186,44 @@ onMounted(() => {
         <div v-if="phones.length > 0" class="phone-grid">
           <div
             v-for="phone in phones"
-            :key="phone"
+            :key="phone.phone_number"
             class="phone-card"
-            :class="{ updated: phone in phoneStatuses }"
+            :class="{ updated: phone.phone_number in phoneStatuses }"
           >
-            <div class="phone-number">{{ phone }}</div>
+            <div class="phone-info">
+              <div class="phone-number">{{ phone.phone_number }}</div>
+              <div v-if="phone.company_name" class="company-name">{{ phone.company_name }}</div>
+            </div>
             <div class="phone-status">
               <span
                 class="status-tag"
                 :style="{
-                  color: statusInfo(effectiveStatus(phone)).color,
-                  borderColor: statusInfo(effectiveStatus(phone)).color,
+                  color: statusInfo(effectiveStatus(phone.phone_number)).color,
+                  borderColor: statusInfo(effectiveStatus(phone.phone_number)).color,
                 }"
               >
-                {{ statusInfo(effectiveStatus(phone)).text }}
+                {{ statusInfo(effectiveStatus(phone.phone_number)).text }}
               </span>
             </div>
             <div class="phone-actions">
               <button
                 class="action-btn done"
                 :disabled="updatingPhone !== null"
-                @click="updateStatus(phone, 1)"
+                @click="updateStatus(phone.phone_number, 1)"
               >
                 已拨打
               </button>
               <button
                 class="action-btn interested"
                 :disabled="updatingPhone !== null"
-                @click="updateStatus(phone, 2)"
+                @click="updateStatus(phone.phone_number, 2)"
               >
                 有意向
               </button>
               <button
                 class="action-btn not-interested"
                 :disabled="updatingPhone !== null"
-                @click="updateStatus(phone, 3)"
+                @click="updateStatus(phone.phone_number, 3)"
               >
                 无意向
               </button>
@@ -423,11 +426,21 @@ onMounted(() => {
   opacity: 0.5;
 }
 
+.phone-info {
+  flex: 1;
+  min-width: 0;
+}
+
 .phone-number {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 1.05rem;
   font-weight: 500;
-  flex: 1;
+}
+
+.company-name {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
 }
 
 .phone-status {
