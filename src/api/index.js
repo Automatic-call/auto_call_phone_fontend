@@ -20,7 +20,7 @@ export async function apiPost(path, body = {}) {
     let message = text
     try {
       const err = JSON.parse(text)
-      message = err.msg || err.message || text
+      message = err.error || err.msg || err.message || text
     } catch {}
     throw new Error(message)
   }

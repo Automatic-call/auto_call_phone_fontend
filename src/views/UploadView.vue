@@ -340,7 +340,7 @@ onMounted(() => {
           <button class="btn" :disabled="!selectedFile || isUploading" @click="reset">
             重置
           </button>
-          <button v-if="isAdmin" class="btn ghost" :disabled="isFetching || isUploading" @click="fetchPhones">
+          <button class="btn ghost" :disabled="isFetching || isUploading || !deviceId" @click="fetchPhones">
             {{ isFetching ? '加载中...' : '加载已有号码' }}
           </button>
           <button
